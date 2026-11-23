@@ -16,62 +16,54 @@ terraform {
   }
 }
 
-# Configure the AWS provider
 provider "aws" {
   region = "eu-north-1"
 }
 
-data "aws_ami" "amazon_linux" {
-  most_recent = true
-  owners      = ["amazon"]
+resource "aws_ecr_repository" "app_repo" {
+  name                 = "python-app-repo"
+  image_tag_mutability = "MUTABLE"
+  force_delete         = true
+}
 
-  filter {
-    name   = "name"
-    values = ["al2023-ami-*-x86_64"]
+resource "aws_lightsail_container_service" "app_service" {
+  name  = "python-app-service"
+  power = "nano"
+  scale = 1
+
+  private_registry_access {
+    ecr_image_puller_role {
+      is_active = true
+    }
   }
 }
 
-resource "aws_security_group" "web_app" {
-  name        = "web_app"
-  description = "security group"
+resource "aws_ecr_repository_policy" "app_repo_policy" {
+  repository = aws_ecr_repository.app_repo.name
 
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 65535
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "web_app"
-  }
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowLightsailPull"
+        Effect = "Allow"
+        Principal = {
+          AWS = aws_lightsail_container_service.app_service.private_registry_access[0].ecr_image_puller_role[0].principal_arn
+        }
+        Action = [
+          "ecr:BatchGetImage",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchCheckLayerAvailability"
+        ]
+      }
+    ]
+  })
 }
 
-resource "aws_instance" "webapp_instance" {
-  ami                    = data.aws_ami.amazon_linux.id
-  instance_type          = "t3.micro"
-  vpc_security_group_ids = [aws_security_group.web_app.id]
-
-  tags = {
-    Name = "webapp_instance"
-  }
+output "ecr_repository_url" {
+  value = aws_ecr_repository.app_repo.repository_url
 }
 
-output "instance_public_ip" {
-  value     = aws_instance.webapp_instance.public_ip
-  sensitive = true
+output "lightsail_url" {
+  value = aws_lightsail_container_service.app_service.url
 }
