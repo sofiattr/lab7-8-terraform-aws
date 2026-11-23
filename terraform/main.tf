@@ -20,6 +20,12 @@ provider "aws" {
   region = "eu-north-1"
 }
 
+variable "lightsail_image" {
+  description = "Повна назва завантаженого образу у Lightsail (наприклад, :python-app-service.flask-app.5)"
+  type        = string
+  default     = ""
+}
+
 resource "aws_ecr_repository" "app_repo" {
   name                 = "python-app-repo"
   image_tag_mutability = "MUTABLE"
@@ -58,6 +64,35 @@ resource "aws_ecr_repository_policy" "app_repo_policy" {
       }
     ]
   })
+}
+
+# Весь деплой контейнера та Public Endpoint тепер описані декларативно через Terraform
+resource "aws_lightsail_container_service_deployment_version" "app_deployment" {
+  count        = var.lightsail_image != "" ? 1 : 0
+  service_name = aws_lightsail_container_service.app_service.name
+
+  container {
+    container_name = "flask-app"
+    image          = var.lightsail_image
+
+    ports = {
+      8080 = "HTTP"
+    }
+  }
+
+  public_endpoint {
+    container_name = "flask-app"
+    container_port = 8080
+
+    health_check {
+      healthy_threshold   = 2
+      unhealthy_threshold = 2
+      timeout_seconds     = 2
+      interval_seconds    = 5
+      path                = "/"
+      success_codes       = "200-499"
+    }
+  }
 }
 
 output "ecr_repository_url" {
