@@ -1,6 +1,7 @@
-FROM python:3
-ADD app.py /
-RUN pip install flask
-RUN pip install flask_restful
+FROM python:3.10-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
 EXPOSE 8080
-CMD [ "python", "./app.py" ]
+CMD ["python", "-u", "app.py"]
