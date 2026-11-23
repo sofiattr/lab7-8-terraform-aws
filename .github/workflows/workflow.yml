@@ -57,19 +57,18 @@ jobs:
         run: terraform init
         working-directory: terraform
 
-      - name: Terraform Plan
-        run: terraform plan -no-color -input=false
-        working-directory: terraform
-
-      - name: Terraform Apply
+      # 1. Перевірка та створення базової інфраструктури
+      - name: Terraform Apply Base
         run: terraform apply -input=false -auto-approve
         working-directory: terraform
 
+      # 2. Збірка та завантаження Docker-образу
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and push Docker image to ECR
+      - name: Build and push Docker image
+        id: build-image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: python-app-repo
@@ -78,11 +77,6 @@ jobs:
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
-      - name: Deploy container to Amazon Lightsail
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: python-app-repo
-        run: |
           sudo curl -s "https://s3.us-west-2.amazonaws.com/lightsailctl/latest/linux-amd64/lightsailctl" -o "/usr/local/bin/lightsailctl"
           sudo chmod +x /usr/local/bin/lightsailctl
 
@@ -91,12 +85,11 @@ jobs:
             --service-name python-app-service \
             --label flask-app \
             --image $ECR_REGISTRY/$ECR_REPOSITORY:latest)
-          echo "$PUSH_OUTPUT"
 
           LIGHTSAIL_IMAGE=$(echo "$PUSH_OUTPUT" | grep -oE ':python-app-service\.flask-app\.[0-9]+')
+          echo "image=$LIGHTSAIL_IMAGE" >> $GITHUB_OUTPUT
 
-          aws lightsail create-container-service-deployment \
-            --region eu-north-1 \
-            --service-name python-app-service \
-            --containers "{\"flask-app\":{\"image\":\"$LIGHTSAIL_IMAGE\",\"ports\":{\"8080\":\"HTTP\"}}}" \
-            --public-endpoint '{"containerName":"flask-app","containerPort":8080,"healthCheck":{"path":"/"}}'
+      # 3. Повний деплой інфраструктури та контейнера через Terraform
+      - name: Terraform Apply Full Infrastructure
+        run: terraform apply -input=false -auto-approve -var="lightsail_image=${{ steps.build-image.outputs.image }}"
+        working-directory: terraform
