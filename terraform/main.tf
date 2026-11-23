@@ -6,6 +6,14 @@ terraform {
       version = "~> 5.0"
     }
   }
+
+  backend "s3" {
+    bucket         = "terraform-state-sofia-lab78"
+    key            = "terraform.tfstate"
+    region         = "eu-north-1"
+    dynamodb_table = "terraform-state-locking"
+    encrypt        = true
+  }
 }
 
 # Configure the AWS provider
